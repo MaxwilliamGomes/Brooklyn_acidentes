@@ -1,0 +1,298 @@
+---
+title: "Acidentes de trânsito no Brooklyn"
+author: "Maxwilliam"
+date: "2023-11-18"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Background
+
+
+
+# Problema de negócios
+
+O problema de negócios que podemos abordar com base nesse conjunto de dados é a segurança viária. O objetivo é analisar os acidentes de trânsito registrados no conjunto de dados e identificar padrões e tendências que possam ser utilizados para melhorar a segurança nas ruas.
+
+## Sumário executivo
+
+## Dicionário de dados
+Field                  | Description
+-----------------------|----------------------------------------------
+Collision ID           | Identificador único do registro gerado pelo sistema
+Date                   | Data do ocorrido da colisão
+Time                   | Hora do ocorrido da colisão
+Borough                | Distrito onde a colisão ocorreu
+Street Name            | Nome da rua onde a colisão ocorreu
+Cross Street           | Rua transversal mais próxima à colisão
+Latitude               | Coordenada de latitude no Sistema de Coordenadas Global 
+Longitude              | Coordenada de longitude no Sistema de Coordenadas Global 
+Contributing Factor    | Fatores que contribuíram para a colisão para o veículo designado
+Vehicle Type           | Tipo de veículo
+Persons Injured        | Número total de pessoas feridas (pedestres + ciclistas + ocupantes de veículos)
+Persons Killed         | Número total de pessoas mortas (pedestres + ciclistas + ocupantes de veículos)
+Pedestrians Injured    | Número de pedestres feridos
+Pedestrians Killed     | Número de pedestres mortos
+Cyclists Injured       | Número de ciclistas feridos
+Cyclists Killed        | Número de ciclistas mortos
+Motorists Injured      | Número de ocupantes de veículos feridos
+Motorists Killed       | Número de ocupantes de veículos mortos
+
+
+# Importação das bibliotecas
+```{r}
+install.packages("rmarkdown")
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(data.table)
+library(shiny)
+library(tidyr)
+library(lubridate)
+library(stringr)
+library(rmarkdown)
+```
+
+# Importando o dataset
+```{r}
+NYC = NYC_Collisions
+```
+# Análise exploratória
+
+### minha análise se concentrará no Bairro de Broklyn, vou filtrar os dados
+```{r}
+# Filtre o data frame para incluir apenas as entradas em que 'Borough' é igual a 'Brooklyn'
+df_brooklyn <- subset(NYC, Borough == 'Brooklyn')
+```
+
+```{r}
+head(df_brooklyn)
+```
+```{r}
+print(paste("O dataframe possui", nrow(df_brooklyn), "linhas e", ncol(df_brooklyn), "colunas."))
+
+```
+
+```{r}
+### Utilizando a função str() para obter informações sobre o dataframe
+str(df_brooklyn)
+```
+
+```{r}
+### Utilizando a função summary() para obter um resumo estatístico do dataframe
+summary(df_brooklyn)
+```
+# Detecçao de Outliers
+
+```{r}
+# Função para identificar outliers em uma variável
+detect_outliers <- function(column) {
+  if (is.numeric(column)) {  
+    Q1 <- quantile(column, 0.25, na.rm = TRUE)
+    Q3 <- quantile(column, 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    outliers <- column[(column < lower_bound) | (column > upper_bound)]
+    return(outliers)
+  } else {
+    return(NULL)  
+  }
+}
+
+# Lista para armazenar os outliers de cada variável
+outliers_list <- list()
+
+# Loop através das variáveis numéricas
+for (col in names(df_brooklyn)) {
+  if (!(col %in% c('Longitude', 'Latitude', 'Collision ID'))) {
+    outliers <- detect_outliers(df_brooklyn[[col]])
+    if (!is.null(outliers) && length(outliers) > 0) {
+      outliers_list[[col]] <- outliers
+    }
+  }
+}
+
+# Crie uma lista de dataframes com os outliers
+outliers_df <- stack(outliers_list)
+
+# Renomeie as colunas
+colnames(outliers_df) <- c("Outlier", "Variable")
+
+# Conte quantos outliers cada variável possui
+contagem_outliers <- table(outliers_df$Variable)
+
+# Criar um DataFrame com a contagem de outliers para cada variável
+contagem_outliers_df <- data.frame(Variavel = names(contagem_outliers), Quantidade_de_Outliers = as.numeric(contagem_outliers))
+
+# Exiba a contagem de outliers para cada variável
+print(contagem_outliers_df)
+
+
+
+
+
+
+```
+```{r}
+fig <- plot_ly(contagem_outliers_df, x = ~Variavel, y = ~`Quantidade_de_Outliers`, type = 'bar', 
+               color = ~Variavel, text = ~`Quantidade_de_Outliers`) %>%
+  layout(title = 'Distribuição dos Outliers nas Colunas do DataFrame',
+         yaxis = list(title = 'Quantidade de Outliers'),
+         height = 600)
+
+fig
+```
+Nota-se que a quantidade de acidentes varia muito em destaque aos motoristas acidentados, contudo 
+vale notar que no arquivo nem todos os acidentes causam feridos e mortos, o que deve estar influenciando na média
+
+
+
+# Valores Nulos
+```{r}
+### Quantidade de valores nulos
+colSums(is.na(df_brooklyn))
+```
+```{r}
+# Fazendo unpack de linhas e colunas
+rows <- nrow(df_brooklyn)
+columns <- ncol(df_brooklyn)
+
+# Percentual de dados faltantes
+percentual_nan <- ((colSums(is.na(df_brooklyn))/rows) * 100)
+percentual_nan <- round(percentual_nan, 2)
+
+# Visualizando o percentual de dados faltantes
+print(percentual_nan)
+```
+A coluna 'Cross Street' possui mais da metade do Dataset com valores vazios, o que deve ao fato de mais da metade dos acidentes não serem próximo a uma encruzilhada
+
+
+# Linhas Duplicadas
+```{r}
+# Verificando se há linhas duplicadas no dataframe 'NYC'
+duplicated_rows <- df_brooklyn[duplicated(df_brooklyn), ]
+
+# Visualizando as linhas duplicadas
+print(duplicated_rows)
+```
+Nota-se que não há valores duplicados no dataset
+
+# Quantidade de valores únicos por coluna
+```{r}
+# Criar um dataframe vazio para armazenar os resultados
+contagem <- data.frame(Variavel = character(), Contagens_Distintas = numeric(), stringsAsFactors = FALSE)
+
+# Calcular a contagem de valores distintos e armazenar no dataframe 'contagem'
+for (coluna in names(df_brooklyn)) {
+  
+  dados <- data.frame(Variavel = coluna, Contagens_Distintas = length(unique(NYC[[coluna]])), stringsAsFactors = FALSE)
+  contagem <- rbind(contagem, dados)
+}
+
+
+print(contagem)
+```
+
+```{r}
+# A. Quantas linhas há na tabela?
+print(paste('# of rows:', nrow(df_brooklyn)))
+
+# B. Qual é o intervalo de datas do campo de data na tabela?
+print(paste('Date range:', min(df_brooklyn$Date), '-', max(df_brooklyn$Date)))
+
+
+```
+
+### Será necessário criar uma coluna de Faixa Horária para suporte
+
+### Vou criar uma coluna para saber se o local é uma rua ou avenida
+
+### Há acidentes que não ocorrem feridos e mortos
+
+### Vou criar um dataframe apenas com os acidentes para verificar os outliers com mais precisão
+
+
+
+# Preparando os dados
+
+```{r}
+df_brooklyn$Time <- as.POSIXct(df_brooklyn$Time)
+
+# Criando uma nova coluna 'HourRange' para a faixa horária de hora em hora
+df_brooklyn$HourRange <- format(df_brooklyn$Time, format = "%H")
+
+# Exibindo as primeiras linhas do DataFrame resultante
+print(df_brooklyn[c('Time', 'HourRange')])
+
+```
+
+
+```{r}
+
+# Criar uma nova coluna 'LocationType' indicando se é uma "Avenue", "Street" ou "Expressway"
+df_brooklyn$LocationType <- 'Other'  # Valor padrão para outros casos
+df_brooklyn$LocationType[grepl('Avenue', df_brooklyn$`Street Name`, ignore.case = TRUE)] <- 'Avenue'
+df_brooklyn$LocationType[grepl('Street', df_brooklyn$`Street Name`, ignore.case = TRUE)] <- 'Street'
+df_brooklyn$LocationType[grepl('Parkway|Road', df_brooklyn$`Street Name`, ignore.case = TRUE)] <- 'Expressway'
+
+# Visualizar as contagens
+location_counts <- table(df_brooklyn$LocationType)
+print(location_counts)
+```
+```{r}
+# Calcule as taxas sem adicionar ao dataframe
+Tx_deFeridos <- (sum(df_brooklyn$`Persons Injured`) / nrow(df_brooklyn)) * 100
+Tx_deFatalidade <- round((sum(df_brooklyn$`Persons Killed`) / nrow(df_brooklyn)) * 100, 2)
+
+# Visualize as variáveis calculadas em porcentagem
+print(paste("Taxa de Feridos: ", Tx_deFeridos,"%"))
+print(paste("Taxa de Fatalidade: ", Tx_deFatalidade,"%"))
+
+
+```
+
+```{r}
+# Criando um calendário
+df_exemplo <- data.frame(
+  Data = seq(as.Date("2021-01-01"), as.Date("2023-04-09"), by = "days")
+)
+
+# Expanda as datas para criar um calendário
+calendario <- df_exemplo %>%
+  complete(Data = seq(min(Data), max(Data), by = "days")) %>%
+  arrange(Data)
+
+# Visualize o novo dataframe
+print(calendario)
+```
+```{r}
+
+# Adicione a coluna 'Estacao' ao dataframe calendario
+calendario <- calendario %>%
+  mutate(
+    Dia = day(Data),
+    Mes_numerico = month(Data),
+    Mes_nome = month(Data, label = TRUE),
+    Ano = year(Data),
+    DiaDaSemana = wday(Data, label = TRUE),
+    TipoDeDia = ifelse(wday(Data) %in% c(1, 7), "Fim de Semana", "Dia útil"),
+    Quarter = quarter(Data),
+    )
+
+# Visualize o dataframe atualizado
+print(calendario)
+
+
+```
+
+
